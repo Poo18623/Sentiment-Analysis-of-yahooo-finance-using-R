@@ -1,0 +1,174 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(httr)
+library(stringr)
+install.packages("twitteR")
+library(twitteR)
+library(magrittr)
+install.packages("SentimentAnalysis")
+library(SentimentAnalysis)
+require(gridExtra)
+```
+
+
+```{r}
+#install.packages("twitteR", repos = "http://cran.us.r-project.org")
+#install.packages("RCurl", repos = "http://cran.us.r-project.org")
+#install.packages("httr", repos = "http://cran.us.r-project.org")
+#install.packages("syuzhet", repos = "http://cran.us.r-project.org")
+library(twitteR)
+library(RCurl)
+library(httr)
+library(tm)
+library(wordcloud)
+library(syuzhet)
+```
+
+Installing and Loading the Packages
+
+```{r}
+#install.packages("rvest")
+#install.packages("bitops") Simple Data Frames
+#install.packages("XML")
+#install.packages("stringr")
+#install.packages("RCurl") The curl package provides bindings to the libcurl C library for R
+#install.packages("tibble")
+#install.packages("tidytext")
+#install.packages("sentimentr")
+library(rvest)
+library(bitops)
+library(XML)
+library(stringr)
+library(RCurl)
+library(tibble)
+library(tidytext)
+library(sentimentr)
+library(ggplot2)
+
+```
+
+Giving the web links from where we need articels for one Stock i.e TCS
+
+```{r}
+web <- function(i){
+weblinks <- read_html(paste('https://in.finance.yahoo.com/quote/',i,'/news?p=',i,sep=""))
+doc <- htmlParse(weblinks)
+links <- xpathSApply(doc,"//a/@href")
+webs <- paste('https://in.finance.yahoo.com',unlist(str_extract_all(links,'/news.+')),sep = "")
+webs
+}
+
+article_TCS <- web ("TCS.NS")
+article_TCS
+```
+
+```{r}
+
+#Try to use for loop, but overloading
+
+article_TCS1 <- getURL(article_TCS,ssl.verifypeer = FALSE)
+
+
+#function to extraxt news from multiple articles
+
+content <- function(j){
+x <- list()
+for ( i in c(1:length(j))){
+  article_para <- htmlTreeParse(j[i],useInternal=TRUE) #parsing HTML source of the article
+doc.text <- unlist(xpathSApply(article_para,'//p',xmlValue)) #Extracting the paragraph
+doc.text <- gsub('\\n','',doc.text) #removing newline tags in extracted text unit
+doc.text <- paste(doc.text,collapse='') #removing spaces
+x[i] <- doc.text
+}
+return(x)
+}
+TCS_content <- content(article_TCS1)
+
+```
+
+
+
+```{r}
+text <- function(q,j){
+companies <- list(q)
+stocks <- c(j)
+series <- tibble()
+for(i in seq_along(stocks)){
+  clean <- tibble(article=seq_along(companies[[i]]),
+                  text=companies[[i]])%>%
+    unnest_tokens(word,text) %>%
+    mutate(company = stocks[i])%>%
+    select(company,everything())
+  series <- rbind(series,clean)
+}
+
+series$company <- factor(series$company,levels=rev(stocks))
+
+series
+}
+
+#text_TCS <- text(TCS_content,"TCS")
+#text_TCS
+```
+
+
+
+```{r}
+text_TCS <- text(TCS_content,"TCS")
+text_TCS
+
+```
+
+
+```{r}
+
+#install.packages("textdata")
+library(textdata)
+text_sentiment <-  function(text) {
+  text%>%
+        right_join(get_sentiments("nrc"))%>%
+    filter(!is.na(sentiment))%>%
+    count(sentiment,sort=TRUE)
+}
+
+```
+
+
+```{r}
+sen_TCS <- text_sentiment(text_TCS)
+sen_TCS
+```
+
+
+```{r}
+
+#Using get_sentiments (bing)
+library(tidyverse)
+graph <- function(graph1){
+graph1 %>%
+    group_by(company) %>%
+    mutate(word_count =1:n(),index=word_count %/% 75 + 1) %>%
+    inner_join(get_sentiments("bing"))%>%
+    count(company,index=index,sentiment)%>%
+    ungroup() %>%
+    spread(sentiment, n, fill=0)%>%
+    mutate(sentiment=positive - negative)%>%
+    ggplot(aes(index,sentiment,fill=company)) +
+    geom_bar(alpha=0.5,stat= "identity",show.legend = FALSE) +
+    facet_wrap(~ company,ncol=2, scales="free_x")
+}
+
+```
+
+
+```{r}
+graph(text_TCS)
+```
+
